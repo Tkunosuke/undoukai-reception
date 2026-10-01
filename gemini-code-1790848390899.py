@@ -4,7 +4,7 @@ import copy
 from datetime import datetime
 import os
 
-st.set_page_config(page_title="運動会 当日受付システム", layout="wide")
+st.set_page_config(page_title="イナリンピック 当日受付システム", layout="wide")
 
 # ===== 1. ローカルCSVファイルからのデータ読み込み =====
 CSV_FILE = 'history.csv'
@@ -19,7 +19,7 @@ else:
 class TeamAssigner:
     def __init__(self, history_df):
         self.teams = ['Red', 'White']
-        self.departments = ['子供', '大人', 'シニア']
+        self.departments = ['初心者', '中級者', '上級者']
         self.num_games = 4
         
         self.counts = {
@@ -78,7 +78,7 @@ assigner = TeamAssigner(df)
 st.title("🚩 運動会 当日受付システム")
 
 departments = ['子供', '大人', 'シニア']
-game_options = {'第1競技': 0, '第2競技': 1, '第3競技': 2, '第4競技': 3}
+game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き': 2, 'リレー': 3}
 
 col_main, col_side = st.columns([2, 1])
 
