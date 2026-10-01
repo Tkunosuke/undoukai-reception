@@ -77,7 +77,7 @@ assigner = TeamAssigner(df)
 # ===== 3. Web画面 UI =====
 st.title("🚩 運動会 当日受付システム")
 
-departments = ['子供', '大人', 'シニア']
+departments = ['初心者', '中級者', '上級者']
 game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き': 2, 'リレー': 3}
 
 col_main, col_side = st.columns([2, 1])
