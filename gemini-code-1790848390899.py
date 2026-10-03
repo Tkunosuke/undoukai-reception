@@ -83,6 +83,10 @@ game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き
 if 'assigned_team' not in st.session_state:
     st.session_state.assigned_team = None
 
+# ★ 新機能：この端末（ブラウザ）で登録した受付日時の履歴を記憶するリスト
+if 'my_timestamps' not in st.session_state:
+    st.session_state.my_timestamps = []
+
 tab_reception, tab_roster = st.tabs(["📋 受付画面", "📖 参加者名簿"])
 
 # ----------------------------------------
@@ -158,20 +162,34 @@ with tab_reception:
                     updated_df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
                     updated_df.to_csv(CSV_FILE, index=False)
                     
+                    # ★ここで「自分の端末で登録した日時」をメモ帳に追加する
+                    st.session_state.my_timestamps.append(now)
+                    
                     st.session_state.assigned_team = assigned_team
                     st.rerun()
 
+        # ★ 新機能：自分専用のUndoボタン
         st.divider()
         if st.button("↩ 直前の受付を取り消す (Undo)", type="secondary"):
-            if df.empty:
-                st.warning("取り消すデータがありません。")
+            if len(st.session_state.my_timestamps) == 0:
+                # このスマホからまだ誰も登録していない場合の警告
+                st.warning("この端末から取り消せる直前のデータがありません。")
             else:
-                last_timestamp = df.iloc[-1]['日時']
-                df_updated = df[df['日時'] != last_timestamp]
-                df_updated.to_csv(CSV_FILE, index=False)
+                # メモ帳の「一番最後（最新）」の日時を取り出す
+                my_last_timestamp = st.session_state.my_timestamps[-1]
                 
+                # 万が一、名簿から先に削除されていた場合のエラー回避
+                if my_last_timestamp in df['日時'].values:
+                    # 全体のデータから、自分の最後の日時のデータだけを除外する
+                    df_updated = df[df['日時'] != my_last_timestamp]
+                    df_updated.to_csv(CSV_FILE, index=False)
+                    st.success("あなたの端末で受け付けた直前のデータを取り消しました！")
+                else:
+                    st.warning("そのデータは既に名簿から削除されています。")
+                
+                # メモ帳からその日時を消して、入力画面に戻す
+                st.session_state.my_timestamps.pop()
                 st.session_state.assigned_team = None
-                st.success("直前の受付データを取り消しました！")
                 st.rerun()
 
     with col_side:
@@ -215,12 +233,8 @@ with tab_roster:
         display_df = df.copy()
         display_df['競技'] = display_df['競技'].apply(format_games)
         
-        # ★ ここが「家族も一緒に表示」するための新しい仕組み ★
         if search_query:
-            # 1. 検索キーワードに引っかかった人たちの「受付日時」のリストを取得
             matched_times = df[df['氏名'].str.contains(search_query, na=False)]['日時'].unique()
-            
-            # 2. その「受付日時」と一致する人を全員（＝家族まるごと）抽出する
             display_df = display_df[display_df['日時'].isin(matched_times)]
             filtered_df = df[df['日時'].isin(matched_times)]
         else:
@@ -273,5 +287,7 @@ with st.sidebar.expander("⚙️ 管理者メニュー (危険)"):
             if os.path.exists(CSV_FILE):
                 os.remove(CSV_FILE)
             st.session_state.assigned_team = None
+            # リセット時に全員のメモ帳も空っぽにする
+            st.session_state.my_timestamps = []
             st.success("すべてのデータをリセットしました！")
             st.rerun()
