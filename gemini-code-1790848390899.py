@@ -79,25 +79,53 @@ st.title("🚩 運動会 当日受付システム")
 
 departments = ['初心者', '中級者', '上級者']
 game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き': 2, 'リレー': 3}
+if 'assigned_team' not in st.session_state:
+    st.session_state.assigned_team = None
 
 col_main, col_side = st.columns([2, 1])
 
 with col_main:
-    st.subheader("👥 ご家族の受付")
-    num_members = st.number_input("ご家族の人数を入力", min_value=1, max_value=10, value=1)
-    family_data = []
-
-    for i in range(num_members):
-        st.markdown(f"**メンバー {i+1}**")
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            dept = st.selectbox("部門", departments, key=f"dept_{i}", label_visibility="collapsed")
-        with c2:
-            selected_games = st.multiselect("参加競技", list(game_options.keys()), key=f"games_{i}", label_visibility="collapsed", placeholder="参加競技を選択...")
+    if st.session_state.assigned_team:
+        st.balloons() # 風船アニメーション
+        team = st.session_state.assigned_team
         
-        games_indices = [game_options[g] for g in selected_games]
-        family_data.append({'dept': dept, 'games': games_indices})
-        st.divider()
+        # HTMLを使って巨大な文字と背景色を描画
+        if team == 'Red':
+            st.markdown("""
+            <div style="background-color:#ff4b4b; padding:50px; border-radius:15px; text-align:center; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                <h1 style="color:white; font-size:60px; margin:0;">🔴 赤チーム</h1>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background-color:#ffffff; padding:50px; border-radius:15px; border:8px solid #dddddd; text-align:center; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                <h1 style="color:#333333; font-size:60px; margin:0;">⚪ 白チーム</h1>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # 次の人の受付に戻るボタン
+        if st.button("▶ 次の方の受付へ進む", type="primary", use_container_width=True):
+            st.session_state.assigned_team = None
+            st.rerun()
+
+    # 状態が空の場合 ＝ いつもの受付入力画面を表示
+        else:
+            st.subheader("👥 ご家族の受付")
+　　　　　　 num_members = st.number_input("ご家族の人数を入力", min_value=1, max_value=10, value=1)
+    　　　  family_data = []
+           for i in range(num_members):
+               st.markdown(f"**メンバー {i+1}**")
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                dept = st.selectbox("部門", departments, key=f"dept_{i}", label_visibility="collapsed")
+            with c2:
+                selected_games = st.multiselect("参加競技", list(game_options.keys()), key=f"games_{i}", label_visibility="collapsed", placeholder="参加競技を選択...")
+        
+            games_indices = [game_options[g] for g in selected_games]
+            family_data.append({'dept': dept, 'games': games_indices})
+            st.divider()
 
     # --- 判定＆保存ボタン ---
     if st.button("この家族のチームを判定！", type="primary", use_container_width=True):
