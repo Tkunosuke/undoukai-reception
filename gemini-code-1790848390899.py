@@ -170,14 +170,37 @@ with col_main:
 # ===== 4. 現在のバランス状況 =====
 with col_side:
     st.header("📊 現在のバランス")
+    
     for dept in departments:
-        st.markdown(f"**{dept}部門**")
+        st.markdown(f"### {dept}部門")
+        
+        # 1. グラフ用のデータ（辞書のリスト）を作る
+        chart_data = []
         for game_name, game_idx in game_options.items():
             red_count = assigner.counts['Red'][dept][game_idx]
             white_count = assigner.counts['White'][dept][game_idx]
-            st.text(f"{game_name}\n赤: {red_count}人 | 白: {white_count}人")
+            
+            chart_data.append({
+                "競技": game_name,
+                "赤チーム": red_count,
+                "白チーム": white_count
+            })
+        
+        # 2. Pandasの「データフレーム（表）」に変換し、X軸を「競技」に設定する
+        df_chart = pd.DataFrame(chart_data).set_index("競技")
+        
+        # 3. 棒グラフを描画（赤チームを赤色、白チームをグレーに指定）
+        st.bar_chart(
+            df_chart,
+            color=["#ff4b4b", "#d3d3d3"]
+        )
+        
+        # 念のため、具体的な数字も折りたたみメニューで確認できるようにしておく
+        with st.expander("詳細な数字を確認"):
+            for data in chart_data:
+                st.text(f"{data['競技']} - 赤: {data['赤チーム']}人 | 白: {data['白チーム']}人")
+                
         st.divider()
-
 # ===== 5. 管理者メニュー =====
 # どこにも属さないように一番左に寄せる（インデントなし）
 st.sidebar.divider()
