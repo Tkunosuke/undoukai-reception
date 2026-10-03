@@ -83,9 +83,12 @@ game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き
 if 'assigned_team' not in st.session_state:
     st.session_state.assigned_team = None
 
-# ★ 新機能：この端末（ブラウザ）で登録した受付日時の履歴を記憶するリスト
 if 'my_timestamps' not in st.session_state:
     st.session_state.my_timestamps = []
+
+# ★ 新機能：サイドバーの一番上に「更新ボタン」を常設
+st.sidebar.button("🔄 最新のデータに更新", type="primary", use_container_width=True)
+st.sidebar.caption("他の端末で登録されたデータを画面に反映します")
 
 tab_reception, tab_roster = st.tabs(["📋 受付画面", "📖 参加者名簿"])
 
@@ -162,32 +165,23 @@ with tab_reception:
                     updated_df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
                     updated_df.to_csv(CSV_FILE, index=False)
                     
-                    # ★ここで「自分の端末で登録した日時」をメモ帳に追加する
                     st.session_state.my_timestamps.append(now)
-                    
                     st.session_state.assigned_team = assigned_team
                     st.rerun()
 
-        # ★ 新機能：自分専用のUndoボタン
         st.divider()
         if st.button("↩ 直前の受付を取り消す (Undo)", type="secondary"):
             if len(st.session_state.my_timestamps) == 0:
-                # このスマホからまだ誰も登録していない場合の警告
                 st.warning("この端末から取り消せる直前のデータがありません。")
             else:
-                # メモ帳の「一番最後（最新）」の日時を取り出す
                 my_last_timestamp = st.session_state.my_timestamps[-1]
-                
-                # 万が一、名簿から先に削除されていた場合のエラー回避
                 if my_last_timestamp in df['日時'].values:
-                    # 全体のデータから、自分の最後の日時のデータだけを除外する
                     df_updated = df[df['日時'] != my_last_timestamp]
                     df_updated.to_csv(CSV_FILE, index=False)
                     st.success("あなたの端末で受け付けた直前のデータを取り消しました！")
                 else:
                     st.warning("そのデータは既に名簿から削除されています。")
                 
-                # メモ帳からその日時を消して、入力画面に戻す
                 st.session_state.my_timestamps.pop()
                 st.session_state.assigned_team = None
                 st.rerun()
@@ -217,6 +211,10 @@ with tab_reception:
 with tab_roster:
     st.header("📖 参加者名簿（受付データ一覧）")
     
+    # ★ 新機能：名簿タブの中にも更新ボタンを設置
+    if st.button("🔄 名簿を最新状態にする", use_container_width=True):
+        st.rerun()
+        
     if df.empty:
         st.info("まだ受付データがありません。")
     else:
@@ -287,7 +285,6 @@ with st.sidebar.expander("⚙️ 管理者メニュー (危険)"):
             if os.path.exists(CSV_FILE):
                 os.remove(CSV_FILE)
             st.session_state.assigned_team = None
-            # リセット時に全員のメモ帳も空っぽにする
             st.session_state.my_timestamps = []
             st.success("すべてのデータをリセットしました！")
             st.rerun()
