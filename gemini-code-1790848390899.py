@@ -11,11 +11,9 @@ CSV_FILE = 'history.csv'
 
 if os.path.exists(CSV_FILE):
     df = pd.read_csv(CSV_FILE)
-    # 古いCSV（氏名列がないデータ）を読み込んだ時のためのエラー回避処理
     if "氏名" not in df.columns:
         df["氏名"] = "未入力"
 else:
-    # データ枠の定義に「氏名」を追加
     df = pd.DataFrame(columns=["日時", "氏名", "チーム", "部門", "競技"])
 
 # ===== 2. 判定アルゴリズム =====
@@ -124,7 +122,6 @@ with tab_reception:
             
             for i in range(num_members):
                 st.markdown(f"**メンバー {i+1}**")
-                # 名前・部門・競技を 1.5 : 1 : 2.5 の幅で横に並べる
                 c1, c2, c3 = st.columns([1.5, 1, 2.5])
                 with c1:
                     name = st.text_input("氏名", key=f"name_{i}", label_visibility="collapsed", placeholder="氏名 または ニックネーム")
@@ -138,7 +135,6 @@ with tab_reception:
                 st.divider()
 
             if st.button("この家族のチームを判定！", type="primary", use_container_width=True):
-                # エラーチェック（名前の空欄と、競技の未選択を防ぐ）
                 if any(member['name'].strip() == "" for member in family_data):
                     st.warning("⚠ 氏名（ニックネーム）が入力されていないメンバーがいます。")
                 elif any(len(member['games']) == 0 for member in family_data):
@@ -153,7 +149,7 @@ with tab_reception:
                         games_str = ",".join(map(str, member['games']))
                         new_rows.append({
                             "日時": now,
-                            "氏名": member['name'],  # ★ここで名前を保存
+                            "氏名": member['name'],
                             "チーム": assigned_team,
                             "部門": member['dept'],
                             "競技": games_str
@@ -217,13 +213,41 @@ with tab_roster:
         display_df = df.copy()
         display_df['競技'] = display_df['競技'].apply(format_games)
         
-        # DataFrameの表示を少し整える
+        # DataFrameの表示（一覧）
         st.dataframe(
             display_df,
             use_container_width=True,
-            hide_index=True  # 左端の連番（0,1,2...）を隠してスッキリさせる
+            hide_index=True
         )
         
+        # ★ 新機能：個別削除ゾーン ★
+        st.divider()
+        st.subheader("🗑️ 特定の参加者を削除")
+        st.write("名簿から特定の人だけを消したい場合は、以下から選んで削除してください。")
+        
+        # ドロップダウン用の選択肢を作成（例: "No.3 : 山田太郎（Redチーム / 初心者）"）
+        delete_options = []
+        for idx, row in df.iterrows():
+            delete_options.append(f"No.{idx} : {row['氏名']} （{row['チーム']}チーム / {row['部門']}）")
+            
+        selected_to_delete = st.selectbox("削除する人を選んでください", ["選択してください..."] + delete_options)
+        
+        if st.button("🚨 この参加者を削除", type="primary"):
+            if selected_to_delete != "選択してください...":
+                # 文字列から「3」のようなインデックス番号だけを抽出
+                target_idx = int(selected_to_delete.split(":")[0].replace("No.", "").strip())
+                
+                # 指定された行を削除してCSVを上書き
+                df_updated = df.drop(index=target_idx)
+                df_updated.to_csv(CSV_FILE, index=False)
+                
+                st.success("参加者を削除しました！")
+                st.rerun() # リロードして表とグラフを最新状態に更新
+            else:
+                st.warning("削除する人を選択してください。")
+        
+        st.divider()
+        # ダウンロードボタン
         csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
             label="📥 名簿をExcel(CSV)でダウンロード",
