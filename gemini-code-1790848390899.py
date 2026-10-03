@@ -202,6 +202,8 @@ with tab_roster:
     if df.empty:
         st.info("まだ受付データがありません。")
     else:
+        search_query = st.text_input("🔍 名前で検索（家族も一緒に表示されます）", "")
+        
         idx_to_name = {str(v): k for k, v in game_options.items()}
         
         def format_games(games_str):
@@ -213,41 +215,45 @@ with tab_roster:
         display_df = df.copy()
         display_df['競技'] = display_df['競技'].apply(format_games)
         
-        # DataFrameの表示（一覧）
+        # ★ ここが「家族も一緒に表示」するための新しい仕組み ★
+        if search_query:
+            # 1. 検索キーワードに引っかかった人たちの「受付日時」のリストを取得
+            matched_times = df[df['氏名'].str.contains(search_query, na=False)]['日時'].unique()
+            
+            # 2. その「受付日時」と一致する人を全員（＝家族まるごと）抽出する
+            display_df = display_df[display_df['日時'].isin(matched_times)]
+            filtered_df = df[df['日時'].isin(matched_times)]
+        else:
+            filtered_df = df
+        
         st.dataframe(
             display_df,
             use_container_width=True,
             hide_index=True
         )
         
-        # ★ 新機能：個別削除ゾーン ★
         st.divider()
         st.subheader("🗑️ 特定の参加者を削除")
         st.write("名簿から特定の人だけを消したい場合は、以下から選んで削除してください。")
         
-        # ドロップダウン用の選択肢を作成（例: "No.3 : 山田太郎（Redチーム / 初心者）"）
         delete_options = []
-        for idx, row in df.iterrows():
+        for idx, row in filtered_df.iterrows():
             delete_options.append(f"No.{idx} : {row['氏名']} （{row['チーム']}チーム / {row['部門']}）")
             
         selected_to_delete = st.selectbox("削除する人を選んでください", ["選択してください..."] + delete_options)
         
         if st.button("🚨 この参加者を削除", type="primary"):
             if selected_to_delete != "選択してください...":
-                # 文字列から「3」のようなインデックス番号だけを抽出
                 target_idx = int(selected_to_delete.split(":")[0].replace("No.", "").strip())
-                
-                # 指定された行を削除してCSVを上書き
                 df_updated = df.drop(index=target_idx)
                 df_updated.to_csv(CSV_FILE, index=False)
                 
                 st.success("参加者を削除しました！")
-                st.rerun() # リロードして表とグラフを最新状態に更新
+                st.rerun()
             else:
                 st.warning("削除する人を選択してください。")
         
         st.divider()
-        # ダウンロードボタン
         csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
             label="📥 名簿をExcel(CSV)でダウンロード",
