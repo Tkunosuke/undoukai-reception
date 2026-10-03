@@ -11,8 +11,12 @@ CSV_FILE = 'history.csv'
 
 if os.path.exists(CSV_FILE):
     df = pd.read_csv(CSV_FILE)
+    # 古いCSV（氏名列がないデータ）を読み込んだ時のためのエラー回避処理
+    if "氏名" not in df.columns:
+        df["氏名"] = "未入力"
 else:
-    df = pd.DataFrame(columns=["日時", "チーム", "部門", "競技"])
+    # データ枠の定義に「氏名」を追加
+    df = pd.DataFrame(columns=["日時", "氏名", "チーム", "部門", "競技"])
 
 # ===== 2. 判定アルゴリズム =====
 class TeamAssigner:
@@ -81,128 +85,154 @@ game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き
 if 'assigned_team' not in st.session_state:
     st.session_state.assigned_team = None
 
-col_main, col_side = st.columns([2, 1])
+tab_reception, tab_roster = st.tabs(["📋 受付画面", "📖 参加者名簿"])
 
-with col_main:
-    # 状態にチーム名が入っている場合 ＝ 結果発表画面
-    if st.session_state.assigned_team:
-        st.balloons()
-        team = st.session_state.assigned_team
-        
-        if team == 'Red':
-            st.markdown("""
-            <div style="background-color:#ff4b4b; padding:50px; border-radius:15px; text-align:center; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
-                <h1 style="color:white; font-size:60px; margin:0;">🔴 赤チーム</h1>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div style="background-color:#ffffff; padding:50px; border-radius:15px; border:8px solid #dddddd; text-align:center; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
-                <h1 style="color:#333333; font-size:60px; margin:0;">⚪ 白チーム</h1>
-            </div>
-            """, unsafe_allow_html=True)
+# ----------------------------------------
+# 【タブ1】受付画面
+# ----------------------------------------
+with tab_reception:
+    col_main, col_side = st.columns([2, 1])
+
+    with col_main:
+        if st.session_state.assigned_team:
+            st.balloons()
+            team = st.session_state.assigned_team
             
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        if st.button("▶ 次の方の受付へ進む", type="primary", use_container_width=True):
-            st.session_state.assigned_team = None
-            st.rerun()
-
-    # 状態が空の場合 ＝ 入力画面（ここで正しく else を合わせます）
-    else:
-        st.subheader("👥 ご家族の受付")
-        num_members = st.number_input("ご家族の人数を入力", min_value=1, max_value=10, value=1)
-        family_data = []
-        
-        for i in range(num_members):
-            st.markdown(f"**メンバー {i+1}**")
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                dept = st.selectbox("部門", departments, key=f"dept_{i}", label_visibility="collapsed")
-            with c2:
-                selected_games = st.multiselect("参加競技", list(game_options.keys()), key=f"games_{i}", label_visibility="collapsed", placeholder="参加競技を選択...")
-            
-            games_indices = [game_options[g] for g in selected_games]
-            family_data.append({'dept': dept, 'games': games_indices})
-            st.divider()
-
-        # 判定ボタンも else の中に入れます
-        if st.button("この家族のチームを判定！", type="primary", use_container_width=True):
-            if any(len(member['games']) == 0 for member in family_data):
-                st.warning("⚠ 参加競技が選択されていないメンバーがいます。")
+            if team == 'Red':
+                st.markdown("""
+                <div style="background-color:#ff4b4b; padding:50px; border-radius:15px; text-align:center; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+                    <h1 style="color:white; font-size:60px; margin:0;">🔴 赤チーム</h1>
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                assigned_team = assigner.assign_family(family_data)
+                st.markdown("""
+                <div style="background-color:#ffffff; padding:50px; border-radius:15px; border:8px solid #dddddd; text-align:center; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                    <h1 style="color:#333333; font-size:60px; margin:0;">⚪ 白チーム</h1>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                new_rows = []
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                for member in family_data:
-                    games_str = ",".join(map(str, member['games']))
-                    new_rows.append({
-                        "日時": now,
-                        "チーム": assigned_team,
-                        "部門": member['dept'],
-                        "競技": games_str
-                    })
-                
-                updated_df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
-                updated_df.to_csv(CSV_FILE, index=False)
-                
-                # ★ここが重要：巨大画面を出すためのスイッチをオンにする
-                st.session_state.assigned_team = assigned_team
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if st.button("▶ 次の方の受付へ進む", type="primary", use_container_width=True):
+                st.session_state.assigned_team = None
                 st.rerun()
 
-    # 取り消しボタンは if(結果画面) でも else(入力画面) でも出したいので外に出す
-    st.divider()
-    if st.button("↩ 直前の受付を取り消す (Undo)", type="secondary"):
-        if df.empty:
-            st.warning("取り消すデータがありません。")
         else:
-            last_timestamp = df.iloc[-1]['日時']
-            df_updated = df[df['日時'] != last_timestamp]
-            df_updated.to_csv(CSV_FILE, index=False)
+            st.subheader("👥 ご家族の受付")
+            num_members = st.number_input("ご家族の人数を入力", min_value=1, max_value=10, value=1)
+            family_data = []
             
-            st.session_state.assigned_team = None
-            st.success("直前の受付データを取り消しました！")
-            st.rerun()
+            for i in range(num_members):
+                st.markdown(f"**メンバー {i+1}**")
+                # 名前・部門・競技を 1.5 : 1 : 2.5 の幅で横に並べる
+                c1, c2, c3 = st.columns([1.5, 1, 2.5])
+                with c1:
+                    name = st.text_input("氏名", key=f"name_{i}", label_visibility="collapsed", placeholder="氏名 または ニックネーム")
+                with c2:
+                    dept = st.selectbox("部門", departments, key=f"dept_{i}", label_visibility="collapsed")
+                with c3:
+                    selected_games = st.multiselect("参加競技", list(game_options.keys()), key=f"games_{i}", label_visibility="collapsed", placeholder="参加競技を選択...")
+                
+                games_indices = [game_options[g] for g in selected_games]
+                family_data.append({'name': name, 'dept': dept, 'games': games_indices})
+                st.divider()
 
+            if st.button("この家族のチームを判定！", type="primary", use_container_width=True):
+                # エラーチェック（名前の空欄と、競技の未選択を防ぐ）
+                if any(member['name'].strip() == "" for member in family_data):
+                    st.warning("⚠ 氏名（ニックネーム）が入力されていないメンバーがいます。")
+                elif any(len(member['games']) == 0 for member in family_data):
+                    st.warning("⚠ 参加競技が選択されていないメンバーがいます。")
+                else:
+                    assigned_team = assigner.assign_family(family_data)
+                    
+                    new_rows = []
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    for member in family_data:
+                        games_str = ",".join(map(str, member['games']))
+                        new_rows.append({
+                            "日時": now,
+                            "氏名": member['name'],  # ★ここで名前を保存
+                            "チーム": assigned_team,
+                            "部門": member['dept'],
+                            "競技": games_str
+                        })
+                    
+                    updated_df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+                    updated_df.to_csv(CSV_FILE, index=False)
+                    
+                    st.session_state.assigned_team = assigned_team
+                    st.rerun()
 
-# ===== 4. 現在のバランス状況 =====
-with col_side:
-    st.header("📊 現在のバランス")
+        st.divider()
+        if st.button("↩ 直前の受付を取り消す (Undo)", type="secondary"):
+            if df.empty:
+                st.warning("取り消すデータがありません。")
+            else:
+                last_timestamp = df.iloc[-1]['日時']
+                df_updated = df[df['日時'] != last_timestamp]
+                df_updated.to_csv(CSV_FILE, index=False)
+                
+                st.session_state.assigned_team = None
+                st.success("直前の受付データを取り消しました！")
+                st.rerun()
+
+    with col_side:
+        st.header("📊 現在のバランス")
+        
+        for dept in departments:
+            st.markdown(f"### {dept}部門")
+            chart_data = []
+            for game_name, game_idx in game_options.items():
+                red_count = assigner.counts['Red'][dept][game_idx]
+                white_count = assigner.counts['White'][dept][game_idx]
+                chart_data.append({"競技": game_name, "赤チーム": red_count, "白チーム": white_count})
+            
+            df_chart = pd.DataFrame(chart_data).set_index("競技")
+            st.bar_chart(df_chart, color=["#ff4b4b", "#d3d3d3"])
+            
+            with st.expander("詳細な数字を確認"):
+                for data in chart_data:
+                    st.text(f"{data['競技']} - 赤: {data['赤チーム']}人 | 白: {data['白チーム']}人")
+            st.divider()
+
+# ----------------------------------------
+# 【タブ2】参加者名簿画面
+# ----------------------------------------
+with tab_roster:
+    st.header("📖 参加者名簿（受付データ一覧）")
     
-    for dept in departments:
-        st.markdown(f"### {dept}部門")
+    if df.empty:
+        st.info("まだ受付データがありません。")
+    else:
+        idx_to_name = {str(v): k for k, v in game_options.items()}
         
-        # 1. グラフ用のデータ（辞書のリスト）を作る
-        chart_data = []
-        for game_name, game_idx in game_options.items():
-            red_count = assigner.counts['Red'][dept][game_idx]
-            white_count = assigner.counts['White'][dept][game_idx]
+        def format_games(games_str):
+            if pd.isna(games_str): return ""
+            indices = str(games_str).split(',')
+            names = [idx_to_name.get(i.strip(), "不明") for i in indices]
+            return "、".join(names)
             
-            chart_data.append({
-                "競技": game_name,
-                "赤チーム": red_count,
-                "白チーム": white_count
-            })
+        display_df = df.copy()
+        display_df['競技'] = display_df['競技'].apply(format_games)
         
-        # 2. Pandasの「データフレーム（表）」に変換し、X軸を「競技」に設定する
-        df_chart = pd.DataFrame(chart_data).set_index("競技")
-        
-        # 3. 棒グラフを描画（赤チームを赤色、白チームをグレーに指定）
-        st.bar_chart(
-            df_chart,
-            color=["#ff4b4b", "#d3d3d3"]
+        # DataFrameの表示を少し整える
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True  # 左端の連番（0,1,2...）を隠してスッキリさせる
         )
         
-        # 念のため、具体的な数字も折りたたみメニューで確認できるようにしておく
-        with st.expander("詳細な数字を確認"):
-            for data in chart_data:
-                st.text(f"{data['競技']} - 赤: {data['赤チーム']}人 | 白: {data['白チーム']}人")
-                
-        st.divider()
+        csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 名簿をExcel(CSV)でダウンロード",
+            data=csv_data,
+            file_name="inarinpic_roster.csv",
+            mime="text/csv",
+        )
+
 # ===== 5. 管理者メニュー =====
-# どこにも属さないように一番左に寄せる（インデントなし）
 st.sidebar.divider()
 with st.sidebar.expander("⚙️ 管理者メニュー (危険)"):
     st.warning("⚠️ これまでのすべての受付データを削除し、ゼロからやり直します。")
