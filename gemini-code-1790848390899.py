@@ -16,7 +16,7 @@ if os.path.exists(CSV_FILE):
 else:
     df = pd.DataFrame(columns=["日時", "氏名", "チーム", "部門", "競技"])
 
-# ===== 2. 判定アルゴリズム =====
+# ===== 2. 判定アルゴリズム ＆ 最適化クラス =====
 class TeamAssigner:
     def __init__(self, history_df):
         self.teams = ['Red', 'White']
@@ -41,11 +41,11 @@ class TeamAssigner:
                             if 0 <= game_idx < self.num_games:
                                 self.counts[team][dept][game_idx] += 1
 
-    def _calculate_diff_score(self, temp_counts):
+    def _calculate_diff_score(self, counts_data):
         score = 0
         for dept in self.departments:
             for game_idx in range(self.num_games):
-                score += abs(temp_counts['Red'][dept][game_idx] - temp_counts['White'][dept][game_idx])
+                score += abs(counts_data['Red'][dept][game_idx] - counts_data['White'][dept][game_idx])
         return score
 
     def assign_family(self, family_members):
@@ -71,6 +71,71 @@ class TeamAssigner:
                 
         return best_team
 
+    # ★ 新機能：受付終了後の全体最適化（スワップ改善）チェック関数
+    def check_global_optimization(self, history_df):
+        if history_df.empty:
+            return None, 0, 0
+            
+        # 1. 現在の全データから「家族（同じ日時に受付したグループ）」単位のリストを作る
+        families = []
+        grouped = history_df.groupby('日時')
+        for timestamp, group in grouped:
+            members = []
+            for _, row in group.iterrows():
+                games_indices = [int(g.strip()) for g in str(row['競技']).split(',') if g.strip().isdigit()]
+                members.append({
+                    'name': row['氏名'],
+                    'dept': row['部門'],
+                    'games': games_indices
+                })
+            current_team = group.iloc[0]['チーム']
+            families.append({
+                'timestamp': timestamp,
+                'team': current_team,
+                'members': members
+            })
+            
+        # 現在の全体バランスのスコアを計算
+        def get_counts_from_families(fam_list):
+            c = {t: {d: [0] * self.num_games for d in self.departments} for t in self.teams}
+            for f in fam_list:
+                t = f['team']
+                for m in f['members']:
+                    dept = m['dept']
+                    for g_idx in m['games']:
+                        c[t][dept][g_idx] += 1
+            return c
+
+        current_counts = get_counts_from_families(families)
+        current_score = self._calculate_diff_score(current_counts)
+        
+        if current_score == 0:
+            return None, 0, 0 # すでに完璧なバランス
+            
+        # 2. 「もし1つの家族のチームをひっくり返したら、スコアが良くなるか？」を全探索
+        best_improved_families = None
+        best_score = current_score
+        
+        for fam in families:
+            # チームを一時的に反転させる（Red ⇄ White）
+            original_team = fam['team']
+            fam['team'] = 'White' if original_team == 'Red' else 'Red'
+            
+            temp_counts = get_counts_from_families(families)
+            temp_score = self._calculate_diff_score(temp_counts)
+            
+            if temp_score < best_score:
+                best_score = temp_score
+                best_improved_families = copy.deepcopy(families)
+                
+            # 元に戻す
+            fam['team'] = original_team
+            
+        if best_improved_families and best_score < current_score:
+            return best_improved_families, current_score, best_score
+            
+        return None, current_score, current_score
+
 assigner = TeamAssigner(df)
 
 
@@ -86,7 +151,9 @@ if 'assigned_team' not in st.session_state:
 if 'my_timestamps' not in st.session_state:
     st.session_state.my_timestamps = []
 
-# ★ 新機能：サイドバーの一番上に「更新ボタン」を常設
+if 'last_family_data' not in st.session_state:
+    st.session_state.last_family_data = None
+
 st.sidebar.button("🔄 最新のデータに更新", type="primary", use_container_width=True)
 st.sidebar.caption("他の端末で登録されたデータを画面に反映します")
 
@@ -115,11 +182,24 @@ with tab_reception:
                     <h1 style="color:#333333; font-size:60px; margin:0;">⚪ 白チーム</h1>
                 </div>
                 """, unsafe_allow_html=True)
+            
+            if st.session_state.last_family_data:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.info("📸 **出番を忘れないように、この画面をスマホで写真に撮っておいてください。**")
                 
+                idx_to_name = {v: k for k, v in game_options.items()}
+                with st.container(border=True):
+                    st.markdown("#### 📝 ご家族の参加競技メモ")
+                    for member in st.session_state.last_family_data:
+                        game_names = [idx_to_name[g] for g in member['games']]
+                        games_str = "、".join(game_names)
+                        st.markdown(f"- **{member['name']}** さん （{member['dept']}） ： {games_str}")
+
             st.markdown("<br>", unsafe_allow_html=True)
             
             if st.button("▶ 次の方の受付へ進む", type="primary", use_container_width=True):
                 st.session_state.assigned_team = None
+                st.session_state.last_family_data = None
                 st.rerun()
 
         else:
@@ -167,6 +247,7 @@ with tab_reception:
                     
                     st.session_state.my_timestamps.append(now)
                     st.session_state.assigned_team = assigned_team
+                    st.session_state.last_family_data = family_data 
                     st.rerun()
 
         st.divider()
@@ -184,6 +265,7 @@ with tab_reception:
                 
                 st.session_state.my_timestamps.pop()
                 st.session_state.assigned_team = None
+                st.session_state.last_family_data = None
                 st.rerun()
 
     with col_side:
@@ -211,13 +293,59 @@ with tab_reception:
 with tab_roster:
     st.header("📖 参加者名簿（受付データ一覧）")
     
-    # ★ 新機能：名簿タブの中にも更新ボタンを設置
     if st.button("🔄 名簿を最新状態にする", use_container_width=True):
         st.rerun()
         
     if df.empty:
         st.info("まだ受付データがありません。")
     else:
+        # ★ 新機能：受付終了後の全体バランス最適化（リバランス提案）
+        with st.expander("⚖️ 受付終了後のチーム再バランス（全体最適化）チェッカー"):
+            st.write("受付が全員終わった後にここを開くと、チームを入れ替えてバランスを良くできるか自動診断します。")
+            
+            if st.button("🤖 バランス改善の提案をチェックする"):
+                optimized_families, old_score, new_score = assigner.check_global_optimization(df)
+                
+                if old_score == 0:
+                    st.success("🎉 現在のバランスは完全に均等です！調整の必要はありません。")
+                elif optimized_families is None or new_score >= old_score:
+                    st.info("💡 これ以上チームを入れ替えてもバランスは改善しないため、現在の状態が最適です。")
+                else:
+                    st.warning(f"⚠️ 改善案が見つかりました！（アンバランス度: {old_score} ➔ {new_score} に改善）")
+                    st.session_state['pending_optimized_families'] = optimized_families
+                    st.rerun()
+                    
+            # 改善案が保持されている場合の実行ボタン
+            if 'pending_optimized_families' in st.session_state and st.session_state['pending_optimized_families']:
+                st.write("👇 提案された改善案を実行して、名簿のチームを自動書き換えしますか？")
+                if st.button("✨ この改善案を実行してチームを再編成する", type="primary"):
+                    # 新しい家族データから新しいCSV行を再構築
+                    new_rows = []
+                    for fam in st.session_state['pending_optimized_families']:
+                        timestamp = fam['timestamp']
+                        team = fam['team']
+                        for m in fam['members']:
+                            games_str = ",".join(map(str, m['games']))
+                            new_rows.append({
+                                "日時": timestamp,
+                                "氏名": m['name'],
+                                "チーム": team,
+                                "部門": m['dept'],
+                                "競技": games_str
+                            })
+                    new_df = pd.DataFrame(new_rows)
+                    new_df.to_csv(CSV_FILE, index=False)
+                    
+                    st.session_state['pending_optimized_families'] = None
+                    st.success("✨ チームの再編成が完了しました！ページを更新します。")
+                    st.rerun()
+                    
+                if st.button("キャンセル"):
+                    st.session_state['pending_optimized_families'] = None
+                    st.rerun()
+
+        st.divider()
+
         search_query = st.text_input("🔍 名前で検索（家族も一緒に表示されます）", "")
         
         idx_to_name = {str(v): k for k, v in game_options.items()}
@@ -277,7 +405,7 @@ with tab_roster:
 # ===== 5. 管理者メニュー =====
 st.sidebar.divider()
 with st.sidebar.expander("⚙️ 管理者メニュー (危険)"):
-    st.warning("⚠️ これまでのすべての受付データを削除し、ゼロからやり直します。")
+    st.warning("⚠️ までのすべての受付データを削除し、ゼロからやり直します。")
     confirm = st.checkbox("本当にすべてのデータを削除する")
     
     if confirm:
@@ -286,5 +414,6 @@ with st.sidebar.expander("⚙️ 管理者メニュー (危険)"):
                 os.remove(CSV_FILE)
             st.session_state.assigned_team = None
             st.session_state.my_timestamps = []
+            st.session_state.last_family_data = None
             st.success("すべてのデータをリセットしました！")
             st.rerun()
