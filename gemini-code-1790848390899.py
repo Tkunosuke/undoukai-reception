@@ -16,7 +16,7 @@ if os.path.exists(CSV_FILE):
 else:
     df = pd.DataFrame(columns=["日時", "氏名", "チーム", "部門", "競技"])
 
-# ===== 2. 判定アルゴリズム ＆ 最適化クラス =====
+# ===== 2. 判定アルゴリズム =====
 class TeamAssigner:
     def __init__(self, history_df):
         self.teams = ['Red', 'White']
@@ -41,11 +41,11 @@ class TeamAssigner:
                             if 0 <= game_idx < self.num_games:
                                 self.counts[team][dept][game_idx] += 1
 
-    def _calculate_diff_score(self, counts_data):
+    def _calculate_diff_score(self, temp_counts):
         score = 0
         for dept in self.departments:
             for game_idx in range(self.num_games):
-                score += abs(counts_data['Red'][dept][game_idx] - counts_data['White'][dept][game_idx])
+                score += abs(temp_counts['Red'][dept][game_idx] - temp_counts['White'][dept][game_idx])
         return score
 
     def assign_family(self, family_members):
@@ -71,71 +71,6 @@ class TeamAssigner:
                 
         return best_team
 
-    # ★ 新機能：受付終了後の全体最適化（スワップ改善）チェック関数
-    def check_global_optimization(self, history_df):
-        if history_df.empty:
-            return None, 0, 0
-            
-        # 1. 現在の全データから「家族（同じ日時に受付したグループ）」単位のリストを作る
-        families = []
-        grouped = history_df.groupby('日時')
-        for timestamp, group in grouped:
-            members = []
-            for _, row in group.iterrows():
-                games_indices = [int(g.strip()) for g in str(row['競技']).split(',') if g.strip().isdigit()]
-                members.append({
-                    'name': row['氏名'],
-                    'dept': row['部門'],
-                    'games': games_indices
-                })
-            current_team = group.iloc[0]['チーム']
-            families.append({
-                'timestamp': timestamp,
-                'team': current_team,
-                'members': members
-            })
-            
-        # 現在の全体バランスのスコアを計算
-        def get_counts_from_families(fam_list):
-            c = {t: {d: [0] * self.num_games for d in self.departments} for t in self.teams}
-            for f in fam_list:
-                t = f['team']
-                for m in f['members']:
-                    dept = m['dept']
-                    for g_idx in m['games']:
-                        c[t][dept][g_idx] += 1
-            return c
-
-        current_counts = get_counts_from_families(families)
-        current_score = self._calculate_diff_score(current_counts)
-        
-        if current_score == 0:
-            return None, 0, 0 # すでに完璧なバランス
-            
-        # 2. 「もし1つの家族のチームをひっくり返したら、スコアが良くなるか？」を全探索
-        best_improved_families = None
-        best_score = current_score
-        
-        for fam in families:
-            # チームを一時的に反転させる（Red ⇄ White）
-            original_team = fam['team']
-            fam['team'] = 'White' if original_team == 'Red' else 'Red'
-            
-            temp_counts = get_counts_from_families(families)
-            temp_score = self._calculate_diff_score(temp_counts)
-            
-            if temp_score < best_score:
-                best_score = temp_score
-                best_improved_families = copy.deepcopy(families)
-                
-            # 元に戻す
-            fam['team'] = original_team
-            
-        if best_improved_families and best_score < current_score:
-            return best_improved_families, current_score, best_score
-            
-        return None, current_score, current_score
-
 assigner = TeamAssigner(df)
 
 
@@ -157,7 +92,7 @@ if 'last_family_data' not in st.session_state:
 st.sidebar.button("🔄 最新のデータに更新", type="primary", use_container_width=True)
 st.sidebar.caption("他の端末で登録されたデータを画面に反映します")
 
-tab_reception, tab_roster = st.tabs(["📋 受付画面", "📖 参加者名簿"])
+tab_reception, tab_roster, tab_optimize = st.tabs(["📋 受付画面", "📖 参加者名簿・競技別", "⚖️️ 全体バランス調整"])
 
 # ----------------------------------------
 # 【タブ1】受付画面
@@ -188,6 +123,7 @@ with tab_reception:
                 st.info("📸 **出番を忘れないように、この画面をスマホで写真に撮っておいてください。**")
                 
                 idx_to_name = {v: k for k, v in game_options.items()}
+                
                 with st.container(border=True):
                     st.markdown("#### 📝 ご家族の参加競技メモ")
                     for member in st.session_state.last_family_data:
@@ -288,10 +224,10 @@ with tab_reception:
             st.divider()
 
 # ----------------------------------------
-# 【タブ2】参加者名簿画面
+# 【タブ2】参加者名簿 ＆ 競技別名簿
 # ----------------------------------------
 with tab_roster:
-    st.header("📖 参加者名簿（受付データ一覧）")
+    st.header("📖 参加者名簿 ＆ 競技別名簿")
     
     if st.button("🔄 名簿を最新状態にする", use_container_width=True):
         st.rerun()
@@ -299,55 +235,7 @@ with tab_roster:
     if df.empty:
         st.info("まだ受付データがありません。")
     else:
-        # ★ 新機能：受付終了後の全体バランス最適化（リバランス提案）
-        with st.expander("⚖️ 受付終了後のチーム再バランス（全体最適化）チェッカー"):
-            st.write("受付が全員終わった後にここを開くと、チームを入れ替えてバランスを良くできるか自動診断します。")
-            
-            if st.button("🤖 バランス改善の提案をチェックする"):
-                optimized_families, old_score, new_score = assigner.check_global_optimization(df)
-                
-                if old_score == 0:
-                    st.success("🎉 現在のバランスは完全に均等です！調整の必要はありません。")
-                elif optimized_families is None or new_score >= old_score:
-                    st.info("💡 これ以上チームを入れ替えてもバランスは改善しないため、現在の状態が最適です。")
-                else:
-                    st.warning(f"⚠️ 改善案が見つかりました！（アンバランス度: {old_score} ➔ {new_score} に改善）")
-                    st.session_state['pending_optimized_families'] = optimized_families
-                    st.rerun()
-                    
-            # 改善案が保持されている場合の実行ボタン
-            if 'pending_optimized_families' in st.session_state and st.session_state['pending_optimized_families']:
-                st.write("👇 提案された改善案を実行して、名簿のチームを自動書き換えしますか？")
-                if st.button("✨ この改善案を実行してチームを再編成する", type="primary"):
-                    # 新しい家族データから新しいCSV行を再構築
-                    new_rows = []
-                    for fam in st.session_state['pending_optimized_families']:
-                        timestamp = fam['timestamp']
-                        team = fam['team']
-                        for m in fam['members']:
-                            games_str = ",".join(map(str, m['games']))
-                            new_rows.append({
-                                "日時": timestamp,
-                                "氏名": m['name'],
-                                "チーム": team,
-                                "部門": m['dept'],
-                                "競技": games_str
-                            })
-                    new_df = pd.DataFrame(new_rows)
-                    new_df.to_csv(CSV_FILE, index=False)
-                    
-                    st.session_state['pending_optimized_families'] = None
-                    st.success("✨ チームの再編成が完了しました！ページを更新します。")
-                    st.rerun()
-                    
-                if st.button("キャンセル"):
-                    st.session_state['pending_optimized_families'] = None
-                    st.rerun()
-
-        st.divider()
-
-        search_query = st.text_input("🔍 名前で検索（家族も一緒に表示されます）", "")
-        
+        # 表示用の翻訳準備
         idx_to_name = {str(v): k for k, v in game_options.items()}
         
         def format_games(games_str):
@@ -359,53 +247,194 @@ with tab_roster:
         display_df = df.copy()
         display_df['競技'] = display_df['競技'].apply(format_games)
         
-        if search_query:
-            matched_times = df[df['氏名'].str.contains(search_query, na=False)]['日時'].unique()
-            display_df = display_df[display_df['日時'].isin(matched_times)]
-            filtered_df = df[df['日時'].isin(matched_times)]
-        else:
-            filtered_df = df
+        # サブタブで「全体名簿」と「競技別名簿」を切り替えられるようにする
+        sub_tab1, sub_tab2 = st.tabs(["📋 全体一覧・検索・削除", "🎯 競技別・部門別名簿"])
         
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        st.divider()
-        st.subheader("🗑️ 特定の参加者を削除")
-        st.write("名簿から特定の人だけを消したい場合は、以下から選んで削除してください。")
-        
-        delete_options = []
-        for idx, row in filtered_df.iterrows():
-            delete_options.append(f"No.{idx} : {row['氏名']} （{row['チーム']}チーム / {row['部門']}）")
+        with sub_tab1:
+            search_query = st.text_input("🔍 名前で検索（家族も一緒に表示されます）", "")
             
-        selected_to_delete = st.selectbox("削除する人を選んでください", ["選択してください..."] + delete_options)
-        
-        if st.button("🚨 この参加者を削除", type="primary"):
-            if selected_to_delete != "選択してください...":
-                target_idx = int(selected_to_delete.split(":")[0].replace("No.", "").strip())
-                df_updated = df.drop(index=target_idx)
-                df_updated.to_csv(CSV_FILE, index=False)
-                
-                st.success("参加者を削除しました！")
-                st.rerun()
+            if search_query:
+                matched_times = df[df['氏名'].str.contains(search_query, na=False)]['日時'].unique()
+                filtered_display_df = display_df[display_df['日時'].isin(matched_times)]
+                filtered_df = df[df['日時'].isin(matched_times)]
             else:
-                st.warning("削除する人を選択してください。")
-        
-        st.divider()
-        csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="📥 名簿をExcel(CSV)でダウンロード",
-            data=csv_data,
-            file_name="inarinpic_roster.csv",
-            mime="text/csv",
-        )
+                filtered_display_df = display_df
+                filtered_df = df
+            
+            st.dataframe(
+                filtered_display_df,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            st.divider()
+            st.subheader("🗑️ 特定の参加者を削除")
+            st.write("名簿から特定の人だけを消したい場合は、以下から選んで削除してください。")
+            
+            delete_options = []
+            for idx, row in filtered_df.iterrows():
+                delete_options.append(f"No.{idx} : {row['氏名']} （{row['チーム']}チーム / {row['部門']}）")
+                
+            selected_to_delete = st.selectbox("削除する人を選んでください", ["選択してください..."] + delete_options)
+            
+            if st.button("🚨 この参加者を削除", type="primary"):
+                if selected_to_delete != "選択してください...":
+                    target_idx = int(selected_to_delete.split(":")[0].replace("No.", "").strip())
+                    df_updated = df.drop(index=target_idx)
+                    df_updated.to_csv(CSV_FILE, index=False)
+                    
+                    st.success("参加者を削除しました！")
+                    st.rerun()
+                else:
+                    st.warning("削除する人を選択してください。")
+            
+            st.divider()
+            csv_data = display_df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="📥 全体名簿をExcel(CSV)でダウンロード",
+                data=csv_data,
+                file_name="inarinpic_all_roster.csv",
+                mime="text/csv",
+            )
+            
+        with sub_tab2:
+            st.subheader("🎯 競技別・部門別の出場者一覧")
+            st.write("各競技の、部門ごとの赤・白の出場メンバーを確認できます。")
+            
+            # 競技ごとにループして表示
+            for game_name in game_options.keys():
+                with st.expander(f"🚩 {game_name} の出場者名簿", expanded=True):
+                    # この競技に参加している行を抽出する処理
+                    game_rows = []
+                    for _, row in df.iterrows():
+                        games_str = str(row['競技'])
+                        indices = [i.strip() for i in games_str.split(',')]
+                        # 該当する競技のインデックス（例: 0）が含まれているか
+                        target_idx_str = str(game_options[game_name])
+                        if target_idx_str in indices:
+                            game_rows.append(row)
+                            
+                    if not game_rows:
+                        st.info("この競技に参加するメンバーはまだいません。")
+                    else:
+                        game_df = pd.DataFrame(game_rows)
+                        
+                        # 部門ごとに分ける
+                        for dept in departments:
+                            dept_df = game_df[game_df['部門'] == dept]
+                            
+                            red_members = dept_df[dept_df['チーム'] == 'Red']['氏名'].tolist()
+                            white_members = dept_df[dept_df['チーム'] == 'White']['氏名'].tolist()
+                            
+                            st.markdown(f"**【 {dept}部門 】** (赤: {len(red_members)}人 / 白: {len(white_members)}人)")
+                            
+                            col_r, col_w = st.columns(2)
+                            with col_r:
+                                st.markdown(f"🔴 **赤チーム**: {', '.join(red_members) if red_members else 'なし'}")
+                            with col_w:
+                                st.markdown(f"⚪ **白チーム**: {', '.join(white_members) if white_members else 'なし'}")
+                            
+                            st.markdown("---")
+
+# ----------------------------------------
+# 【タブ3】全体バランス調整機能
+# ----------------------------------------
+with tab_optimize:
+    st.header("⚖️ 全体バランスの最適化チェック")
+    st.write("受付が全員終わった後に、現在のチーム分けの偏りを診断し、いくつかのチームを入れ替えることでバランスが良くなるか検証します。")
+    
+    if df.empty:
+        st.info("データがありません。")
+    else:
+        if st.button("🔍 全体のバランスを診断・最適化案を探す", type="primary"):
+            groups = []
+            for timestamp, group_df in df.groupby('日時'):
+                current_team = group_df.iloc[0]['チーム']
+                members = []
+                for _, row in group_df.iterrows():
+                    games_indices = [int(g.strip()) for g in str(row['競技']).split(',') if g.strip().isdigit()]
+                    members.append({
+                        'name': row['氏名'],
+                        'dept': row['部門'],
+                        'games': games_indices
+                    })
+                groups.append({
+                    'timestamp': timestamp,
+                    'current_team': current_team,
+                    'members': members
+                })
+            
+            def calc_total_score(current_groups):
+                temp_counts = {team: {d: [0]*4 for d in ['初心者', '中級者', '上級者']} for team in ['Red', 'White']}
+                for grp in current_groups:
+                    t = grp['current_team']
+                    for m in grp['members']:
+                        d = m['dept']
+                        for g in m['games']:
+                            temp_counts[t][d][g] += 1
+                
+                score = 0
+                for d in ['初心者', '中級者', '上級者']:
+                    for g in range(4):
+                        score += abs(temp_counts['Red'][d][g] - temp_counts['White'][d][g])
+                return score, temp_counts
+
+            base_score, base_counts = calc_total_score(groups)
+            st.metric("現在の不均衡スコア（数値が小さいほどバランスが良い）", f"{base_score}点")
+            
+            best_score = base_score
+            best_groups = copy.deepcopy(groups)
+            improved = False
+            
+            for i in range(len(groups)):
+                test_groups = copy.deepcopy(groups)
+                test_groups[i]['current_team'] = 'White' if test_groups[i]['current_team'] == 'Red' else 'Red'
+                
+                test_score, _ = calc_total_score(test_groups)
+                if test_score < best_score:
+                    best_score = test_score
+                    best_groups = test_groups
+                    improved = True
+
+            if improved:
+                st.success(f"✨ 改善案が見つかりました！ 入れ替えを行うと、不均衡スコアが **{base_score}点 ⇒ {best_score}点** に改善されます。")
+                
+                st.markdown("### 📋 変更されるご家族の提案一覧")
+                changes_count = 0
+                for old_g, new_g in zip(groups, best_groups):
+                    if old_g['current_team'] != new_g['current_team']:
+                        names = ", ".join([m['name'] for m in new_g['members']])
+                        st.markdown(f"- **{names}** ご家族： `{old_g['current_team']}` チーム ➡ **`{new_g['current_team']}` チーム** へ変更")
+                        changes_count += 1
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                if st.button("🚀 この最適化案を実行して名簿を書き換える", type="primary"):
+                    new_rows = []
+                    for g in best_groups:
+                        t = g['current_team']
+                        ts = g['timestamp']
+                        for m in g['members']:
+                            games_str = ",".join(map(str, m['games']))
+                            new_rows.append({
+                                "日時": ts,
+                                "氏名": m['name'],
+                                "チーム": t,
+                                "部門": m['dept'],
+                                "競技": games_str
+                            })
+                    
+                    new_df = pd.DataFrame(new_rows)
+                    new_df.to_csv(CSV_FILE, index=False)
+                    st.success("全データのチームバランスを最適化し、名簿を更新しました！「最新のデータに更新」ボタンを押すか、他のタブを確認してください。")
+                    st.balloons()
+            else:
+                st.info("👍 現在のチーム分けはすでに十分バランスが取れており、入れ替えによる改善案は見つかりませんでした。このまま本番を迎えて大丈夫です！")
 
 # ===== 5. 管理者メニュー =====
 st.sidebar.divider()
 with st.sidebar.expander("⚙️ 管理者メニュー (危険)"):
-    st.warning("⚠️ までのすべての受付データを削除し、ゼロからやり直します。")
+    st.warning("⚠️ これまでのすべての受付データを削除し、ゼロからやり直します。")
     confirm = st.checkbox("本当にすべてのデータを削除する")
     
     if confirm:
