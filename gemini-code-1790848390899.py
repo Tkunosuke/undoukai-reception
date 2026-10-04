@@ -92,7 +92,7 @@ if 'last_family_data' not in st.session_state:
 st.sidebar.button("🔄 最新のデータに更新", type="primary", use_container_width=True)
 st.sidebar.caption("他の端末で登録されたデータを画面に反映します")
 
-tab_reception, tab_roster, tab_optimize = st.tabs(["📋 受付画面", "📖 参加者名簿・競技別", "⚖️️ 全体バランス調整"])
+tab_reception, tab_roster, tab_optimize = st.tabs(["📋 受付画面", "📖 参加者名簿・競技別", "⚖ 全体バランス調整"])
 
 # ----------------------------------------
 # 【タブ1】受付画面
@@ -235,7 +235,6 @@ with tab_roster:
     if df.empty:
         st.info("まだ受付データがありません。")
     else:
-        # 表示用の翻訳準備
         idx_to_name = {str(v): k for k, v in game_options.items()}
         
         def format_games(games_str):
@@ -247,7 +246,6 @@ with tab_roster:
         display_df = df.copy()
         display_df['競技'] = display_df['競技'].apply(format_games)
         
-        # サブタブで「全体名簿」と「競技別名簿」を切り替えられるようにする
         sub_tab1, sub_tab2 = st.tabs(["📋 全体一覧・検索・削除", "🎯 競技別・部門別名簿"])
         
         with sub_tab1:
@@ -301,15 +299,15 @@ with tab_roster:
             st.subheader("🎯 競技別・部門別の出場者一覧")
             st.write("各競技の、部門ごとの赤・白の出場メンバーを確認できます。")
             
-            # 競技ごとにループして表示
+            # ★ 新機能：ダウンロード用に整理されたデータを貯めるリスト
+            export_roster_data = []
+            
             for game_name in game_options.keys():
                 with st.expander(f"🚩 {game_name} の出場者名簿", expanded=True):
-                    # この競技に参加している行を抽出する処理
                     game_rows = []
                     for _, row in df.iterrows():
                         games_str = str(row['競技'])
                         indices = [i.strip() for i in games_str.split(',')]
-                        # 該当する競技のインデックス（例: 0）が含まれているか
                         target_idx_str = str(game_options[game_name])
                         if target_idx_str in indices:
                             game_rows.append(row)
@@ -319,7 +317,6 @@ with tab_roster:
                     else:
                         game_df = pd.DataFrame(game_rows)
                         
-                        # 部門ごとに分ける
                         for dept in departments:
                             dept_df = game_df[game_df['部門'] == dept]
                             
@@ -335,6 +332,36 @@ with tab_roster:
                                 st.markdown(f"⚪ **白チーム**: {', '.join(white_members) if white_members else 'なし'}")
                             
                             st.markdown("---")
+                            
+                            # ダウンロード用の表データに一行ずつ追加していく
+                            export_roster_data.append({
+                                "競技": game_name,
+                                "部門": dept,
+                                "チーム": "Red (赤)",
+                                "人数": len(red_members),
+                                "出場者": "、".join(red_members) if red_members else ""
+                            })
+                            export_roster_data.append({
+                                "競技": game_name,
+                                "部門": dept,
+                                "チーム": "White (白)",
+                                "人数": len(white_members),
+                                "出場者": "、".join(white_members) if white_members else ""
+                            })
+            
+            # 競技ごとのデータが存在する場合のみダウンロードボタンを表示
+            if export_roster_data:
+                st.divider()
+                export_df = pd.DataFrame(export_roster_data)
+                csv_roster = export_df.to_csv(index=False).encode('utf-8-sig')
+                
+                st.download_button(
+                    label="📥 この【競技別名簿】をExcel(CSV)でダウンロード",
+                    data=csv_roster,
+                    file_name="inarinpic_games_roster.csv",
+                    mime="text/csv",
+                    type="primary"
+                )
 
 # ----------------------------------------
 # 【タブ3】全体バランス調整機能
