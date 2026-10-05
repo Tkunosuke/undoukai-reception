@@ -299,7 +299,6 @@ with tab_roster:
             st.subheader("🎯 競技別・部門別の出場者一覧")
             st.write("各競技の、部門ごとの赤・白の出場メンバーを確認できます。")
             
-            # ★ 新機能：ダウンロード用に整理されたデータを貯めるリスト
             export_roster_data = []
             
             for game_name in game_options.keys():
@@ -333,7 +332,6 @@ with tab_roster:
                             
                             st.markdown("---")
                             
-                            # ダウンロード用の表データに一行ずつ追加していく
                             export_roster_data.append({
                                 "競技": game_name,
                                 "部門": dept,
@@ -349,7 +347,6 @@ with tab_roster:
                                 "出場者": "、".join(white_members) if white_members else ""
                             })
             
-            # 競技ごとのデータが存在する場合のみダウンロードボタンを表示
             if export_roster_data:
                 st.divider()
                 export_df = pd.DataFrame(export_roster_data)
