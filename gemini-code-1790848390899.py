@@ -18,10 +18,10 @@ else:
 
 # ===== 2. 判定アルゴリズム =====
 class TeamAssigner:
-    def __init__(self, history_df):
+    def __init__(self, history_df, num_games=5):
         self.teams = ['Red', 'White']
         self.departments = ['初心者', '中級者', '上級者']
-        self.num_games = 4
+        self.num_games = num_games
         
         self.counts = {
             team: {dept: [0] * self.num_games for dept in self.departments}
@@ -57,7 +57,8 @@ class TeamAssigner:
             for member in family_members:
                 dept = member['dept']
                 for game_idx in member['games']:
-                    temp_counts[target_team][dept][game_idx] += 1
+                    if 0 <= game_idx < self.num_games:
+                        temp_counts[target_team][dept][game_idx] += 1
             
             score = self._calculate_diff_score(temp_counts)
             
@@ -71,14 +72,21 @@ class TeamAssigner:
                 
         return best_team
 
-assigner = TeamAssigner(df)
-
 
 # ===== 3. Web画面 UI =====
 st.title("🚩 運動会 当日受付システム")
 
 departments = ['初心者', '中級者', '上級者']
-game_options = {'障害物走': 0, 'ドッチボールo玉入れ': 1, '綱引き': 2, 'リレー': 3}
+game_options = {
+    '障害物走': 0,
+    'ドッチボールo玉入れ': 1,
+    '鬼ごっこ玉入れ': 2,
+    '綱引き': 3,
+    'リレー': 4
+}
+num_games = len(game_options)
+
+assigner = TeamAssigner(df, num_games=num_games)
 
 if 'assigned_team' not in st.session_state:
     st.session_state.assigned_team = None
@@ -127,7 +135,7 @@ with tab_reception:
                 with st.container(border=True):
                     st.markdown("#### 📝 ご家族の参加競技メモ")
                     for member in st.session_state.last_family_data:
-                        game_names = [idx_to_name[g] for g in member['games']]
+                        game_names = [idx_to_name[g] for g in member['games'] if g in idx_to_name]
                         games_str = "、".join(game_names)
                         st.markdown(f"- **{member['name']}** さん （{member['dept']}） ： {games_str}")
 
@@ -183,7 +191,7 @@ with tab_reception:
                     
                     st.session_state.my_timestamps.append(now)
                     st.session_state.assigned_team = assigned_team
-                    st.session_state.last_family_data = family_data 
+                    st.session_state.last_family_data = family_data
                     st.rerun()
 
         st.divider()
@@ -238,7 +246,8 @@ with tab_roster:
         idx_to_name = {str(v): k for k, v in game_options.items()}
         
         def format_games(games_str):
-            if pd.isna(games_str): return ""
+            if pd.isna(games_str):
+                return ""
             indices = str(games_str).split(',')
             names = [idx_to_name.get(i.strip(), "不明") for i in indices]
             return "、".join(names)
@@ -376,7 +385,10 @@ with tab_optimize:
                 current_team = group_df.iloc[0]['チーム']
                 members = []
                 for _, row in group_df.iterrows():
-                    games_indices = [int(g.strip()) for g in str(row['競技']).split(',') if g.strip().isdigit()]
+                    games_indices = [
+                        int(g.strip()) for g in str(row['競技']).split(',')
+                        if g.strip().isdigit() and 0 <= int(g.strip()) < num_games
+                    ]
                     members.append({
                         'name': row['氏名'],
                         'dept': row['部門'],
@@ -389,7 +401,10 @@ with tab_optimize:
                 })
             
             def calc_total_score(current_groups):
-                temp_counts = {team: {d: [0]*4 for d in ['初心者', '中級者', '上級者']} for team in ['Red', 'White']}
+                temp_counts = {
+                    team: {d: [0] * num_games for d in departments}
+                    for team in ['Red', 'White']
+                }
                 for grp in current_groups:
                     t = grp['current_team']
                     for m in grp['members']:
@@ -398,8 +413,8 @@ with tab_optimize:
                             temp_counts[t][d][g] += 1
                 
                 score = 0
-                for d in ['初心者', '中級者', '上級者']:
-                    for g in range(4):
+                for d in departments:
+                    for g in range(num_games):
                         score += abs(temp_counts['Red'][d][g] - temp_counts['White'][d][g])
                 return score, temp_counts
 
